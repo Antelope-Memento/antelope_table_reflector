@@ -239,7 +239,7 @@ sub process_data
             my ($j_block_num, $op, $selector, $prev_jsdata) = @{$r};
 
             my $kvo;
-            
+
             if( $i_am_master )
             {
                 if( defined($prev_jsdata) )
@@ -253,7 +253,7 @@ sub process_data
                     }
 
                     $kvo = $rollback->{'kvo'};
-                    
+
                     # delete the application row
                     if( $i_am_master )
                     {
@@ -279,7 +279,7 @@ sub process_data
                         foreach my $hook (@row_hooks)
                         {
                             &{$hook}(1, $kvo);
-                        }                    
+                        }
                     }
                 }
 
@@ -332,7 +332,7 @@ sub process_data
                     {
                         &{$hook}(1, $kvo);
                     }
-                }                    
+                }
             }
 
             # journal the update in rollback tables
@@ -422,7 +422,7 @@ sub process_data
             {
                 &{$hook}($irreversible);
             }
-            
+
             $db->{'sth_del_old_jupdates'}->execute();
         }
 
@@ -441,7 +441,7 @@ sub process_data
                 &{$hook}($block_num, $last_irreversible);
             }
         }
-        
+
         if( $unconfirmed_block - $confirmed_block >= $ack_every )
         {
             if( $i_am_master )
@@ -451,7 +451,7 @@ sub process_data
                     &{$hook}($block_num);
                 }
             }
-            
+
             $db->{'sth_upd_sync_head'}->execute($block_num, $block_time, $last_irreversible, $sourceid);
             $db->{'dbh'}->commit();
             $just_committed = 1;
@@ -539,7 +539,7 @@ sub process_data
                             }
 
                             $kvo = $rollback->{'kvo'};
-                            
+
                             # delete the application row
                             foreach my $hook (@row_hooks)
                             {
@@ -557,13 +557,13 @@ sub process_data
                         if( $op == 2 or $op == 3 )
                         {
                             # updated or deleted row, restore it back
-                            
+
                             if( defined($kvo) )
                             {
                                 foreach my $hook (@row_hooks)
                                 {
                                     &{$hook}(1, $kvo);
-                                }                    
+                                }
                             }
                         }
                     }
@@ -585,7 +585,7 @@ sub process_data
                             exit;
                         }
 
-                        my $kvo = $newval->{'kvo'};                        
+                        my $kvo = $newval->{'kvo'};
                         if( defined($kvo) )
                         {
                             # delete the application row
@@ -677,6 +677,3 @@ sub getdb
 
     $db->{'sth_am_i_master'} = $dbh->prepare('SELECT is_master FROM SYNC WHERE sourceid=?');
 }
-
-
-
