@@ -46,7 +46,7 @@ my $ok = GetOptions
 
 if( not $ok or not $sourceid or not ($sourceid == 1 or $sourceid == 2) or
     not $db_name or not $db_host or not $db_user or not $db_password or
-    or scalar(@plugins) == 0 or scalar(@ARGV) > 0)
+    scalar(@plugins) == 0 or scalar(@ARGV) > 0 )
 {
     print STDERR "Usage: $0 --id=N --database=DB --dbhost=HOST --dbuser=USR --dbpw=PW --plugin=PLUGIN [options...]\n",
         "The utility opens a WS port for Chronicle to send data to.\n",
@@ -54,7 +54,7 @@ if( not $ok or not $sourceid or not ($sourceid == 1 or $sourceid == 2) or
         "  --id=N             source instance identifier (1 or 2)\n",
         "  --port=N           \[$port\] TCP port to listen to websocket connection\n",
         "  --ack=N            \[$ack_every\] Send acknowledgements every N blocks\n",
-        "  --dbport=N         \[$db_port\] database port\n"
+        "  --dbport=N         \[$db_port\] database port\n",
         "  --plugin=FILE.pl   plugin program for custom processing\n",
         "  --parg KEY=VAL     plugin configuration options\n";
     exit 1;
@@ -62,6 +62,7 @@ if( not $ok or not $sourceid or not ($sourceid == 1 or $sourceid == 2) or
 
 
 our @prepare_hooks;
+our @check_kvo_hooks;
 our @row_hooks;
 our @block_hooks;
 our @ack_hooks;
@@ -76,7 +77,7 @@ foreach my $plugin (@plugins)
 
 my $dsn = 'dbi:Pg:dbname=' . $db_name . ';host=' . $db_host . ';port=' . $db_port;
 
-my $db;
+our $db;
 my $json = JSON->new->canonical;
 
 
@@ -209,7 +210,7 @@ sub process_data
         {
             foreach my $hook (@fork_hooks)
             {
-                &{$hook}($start_block);
+                &{$hook}($block_num);
             }
         }
 
@@ -311,88 +312,101 @@ sub process_data
         my $kvo = $data->{'kvo'};
         if( ref($kvo->{'value'}) eq 'HASH' )
         {
-            my $added = ($data->{'added'} eq 'true') ? 1:0;
-
-            if( $i_am_master )
+            my $is_kvo_of_interest = 0;
+            foreach my $hook (@check_kvo_hooks)
             {
-                if( not $locked )
+                if( &{$hook}($kvo) )
                 {
-                    $db->{'dbh'}->do('LOCK TABLE WRITER_LOCK IN EXCLUSIVE MODE');
-                    $locked = 1;
+                    $is_kvo_of_interest = 1;
+                    last;
                 }
+            }
 
-                foreach my $hook (@row_hooks)
-                {
-                    &{$hook}(0, $kvo);
-                }
+            if( $is_kvo_of_interest )
+            {
+                my $added = ($data->{'added'} eq 'true') ? 1:0;
 
-                if( $added )
+                if( $i_am_master )
                 {
+                    if( not $locked )
+                    {
+                        $db->{'dbh'}->do('LOCK TABLE WRITER_LOCK IN EXCLUSIVE MODE');
+                        $locked = 1;
+                    }
+
                     foreach my $hook (@row_hooks)
                     {
-                        &{$hook}(1, $kvo);
+                        &{$hook}(0, $kvo);
                     }
-                }
-            }
 
-            # journal the update in rollback tables
-
-            my $selector_input = join(':', $kvo->{'code'}, $kvo->{'scope'}, $kvo->{'table'},
-                                      sprintf('%.8LX', $kvo->{'primary_key'}));
-            my $selector = sha256($selector_input);
-
-            if( $irreversible > 0 ) # it is zero at initial import, and we don't want to pollute the journal with that.
-            {
-                my $prev_jsdata;
-                my $op;
-
-                $db->{'sth_get_jcurrent'}->execute($selector);
-                my $prevrow = $db->{'sth_get_jcurrent'}->fetchall_arrayref();
-                if( scalar(@{$prevrow}) > 0 )
-                {
-                    $prev_jsdata = $prevrow->[0][0];
                     if( $added )
                     {
-                        # this is an update of existing row
-                        $op = 2;
+                        foreach my $hook (@row_hooks)
+                        {
+                            &{$hook}(1, $kvo);
+                        }
+                    }
+                }
+
+                # journal the update in rollback tables
+
+                my $selector_input = join(':', $kvo->{'code'}, $kvo->{'scope'}, $kvo->{'table'},
+                                          sprintf('%.8LX', $kvo->{'primary_key'}));
+                my $selector = sha256($selector_input);
+
+                if( $irreversible > 0 ) # it is zero at initial import, and we don't want to pollute the journal with that.
+                {
+                    my $prev_jsdata;
+                    my $op;
+
+                    $db->{'sth_get_jcurrent'}->execute($selector);
+                    my $prevrow = $db->{'sth_get_jcurrent'}->fetchall_arrayref();
+                    if( scalar(@{$prevrow}) > 0 )
+                    {
+                        $prev_jsdata = $prevrow->[0][0];
+                        if( $added )
+                        {
+                            # this is an update of existing row
+                            $op = 2;
+                        }
+                        else
+                        {
+                            # the row is deleted
+                            $op = 3;
+                        }
                     }
                     else
                     {
-                        # the row is deleted
-                        $op = 3;
+                        if( $added )
+                        {
+                            # this is a new row
+                            $op = 1;
+                        }
+                        else
+                        {
+                            printf STDERR ("Database possibly corrupted, row deleted but did not exist: %s\n",
+                                           $selector_input);
+                            # the row is deleted
+                            $op = 3;
+                        }
                     }
+
+                    $db->{'sth_ins_jupdates'}->execute($block_num, $op, $selector, $prev_jsdata, ${$jsptr});
                 }
-                else
+
+                $db->{'sth_del_jcurrent'}->execute($selector);
+                if( $added )
                 {
-                    if( $added )
-                    {
-                        # this is a new row
-                        $op = 1;
-                    }
-                    else
-                    {
-                        printf STDERR ("Database possibly corrupted, row deleted but did not exist: %s\n",
-                                       $selector_input);
-                        # the row is deleted
-                        $op = 3;
-                    }
+                    $db->{'sth_ins_jcurrent'}->execute($selector, ${$jsptr});
                 }
 
-                $db->{'sth_ins_jupdates'}->execute($block_num, $op, $selector, $prev_jsdata, ${$jsptr});
-            }
-
-            $db->{'sth_del_jcurrent'}->execute($selector);
-            if( $added )
-            {
-                $db->{'sth_ins_jcurrent'}->execute($selector, ${$jsptr});
-            }
-
-            $rows_counter++;
-            $total_rows++;
-            if( $total_rows >= $total_next_report )
-            {
-                $total_next_report += 100000;
-                printf STDERR ("Imported rows: %d, current block: %d\n", $total_rows, $block_num);
+                $rows_counter++;
+                $total_rows++;
+                if( $total_rows >= $total_next_report )
+                {
+                    $total_next_report += 100000;
+                    printf STDERR ("Imported rows: %d, current block: %d\n", $total_rows, $block_num);
+                }
             }
         }
     }
@@ -545,13 +559,6 @@ sub process_data
                             {
                                 &{$hook}(0, $kvo);
                             }
-                        }
-
-                        if( defined($pk) )
-                        {
-                            my $sth_del = $db->{'dbh'}->prepare('DELETE FROM ' . $tblname . ' WHERE ' . $pk . '=?');
-                            $sth_del->execute($values->{$pk});
-                            $rolled_out++;
                         }
 
                         if( $op == 2 or $op == 3 )

@@ -21,6 +21,23 @@ sub token_balances_prepare
 }
 
 
+
+sub token_balances_check_kvo
+{
+    my $kvo = shift;
+
+    if( $kvo->{'table'} eq 'accounts' )
+    {
+        if( defined($kvo->{'value'}{'balance'}) and
+            $kvo->{'scope'} =~ /^[a-z0-5.]+$/ )
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+
 sub token_balances_row
 {
     my $added = shift;
@@ -63,6 +80,7 @@ sub token_balances_row
 
 
 push(@main::prepare_hooks, \&token_balances_prepare);
+push(@main::check_kvo_hooks, \&token_balances_check_kvo);
 push(@main::row_hooks, \&token_balances_row);
 
 1;

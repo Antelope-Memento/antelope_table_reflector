@@ -1,0 +1,19 @@
+[Unit]
+Description=memento table reflector writer
+After=mariadb.service
+
+[Service]
+Type=simple
+Environment="WRITER_HOME=/opt/antelope_table_reflector"
+EnvironmentFile=/etc/default/table_reflector_%i
+
+ExecStart=/usr/bin/perl ${WRITER_HOME}/writer/table_reflector_dbwriter.pl $DBWRITER_OPTS
+TimeoutSec=45s
+Restart=always
+User=root
+Group=daemon
+KillMode=control-group
+
+
+[Install]
+WantedBy=multi-user.target
