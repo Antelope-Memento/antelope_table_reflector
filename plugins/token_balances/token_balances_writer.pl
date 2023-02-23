@@ -42,7 +42,8 @@ sub token_balances_row
 {
     my $added = shift;
     my $kvo = shift;
-
+    my $block_num = shift;
+    
     if( $kvo->{'table'} eq 'accounts' )
     {
         if( defined($kvo->{'value'}{'balance'}) and

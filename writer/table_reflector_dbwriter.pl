@@ -240,6 +240,7 @@ sub process_data
             my ($j_block_num, $op, $selector, $prev_jsdata) = @{$r};
 
             my $kvo;
+            my $block_time;
 
             if( $i_am_master )
             {
@@ -254,13 +255,14 @@ sub process_data
                     }
 
                     $kvo = $rollback->{'kvo'};
+                    $block_time = $rollback->{'block_timestamp'};
 
                     # delete the application row
                     if( $i_am_master )
                     {
                         foreach my $hook (@row_hooks)
                         {
-                            &{$hook}(0, $kvo);
+                            &{$hook}(0, $kvo, $j_block_num, $block_time);
                         }
                     }
                 }
@@ -279,7 +281,7 @@ sub process_data
                     {
                         foreach my $hook (@row_hooks)
                         {
-                            &{$hook}(1, $kvo);
+                            &{$hook}(1, $kvo, $j_block_num, $block_time);
                         }
                     }
                 }
@@ -309,6 +311,8 @@ sub process_data
             return -1;
         }
 
+        my $block_time = $data->{'block_timestamp'};
+
         my $kvo = $data->{'kvo'};
         if( ref($kvo->{'value'}) eq 'HASH' )
         {
@@ -336,14 +340,14 @@ sub process_data
 
                     foreach my $hook (@row_hooks)
                     {
-                        &{$hook}(0, $kvo);
+                        &{$hook}(0, $kvo, $block_num, $block_time);
                     }
 
                     if( $added )
                     {
                         foreach my $hook (@row_hooks)
                         {
-                            &{$hook}(1, $kvo);
+                            &{$hook}(1, $kvo, $block_num, $block_time);
                         }
                     }
                 }
@@ -541,6 +545,7 @@ sub process_data
                         my ($j_block_num, $op, $selector, $prev_jsdata) = @{$r};
 
                         my $kvo;
+                        my $block_time;
 
                         if( defined($prev_jsdata) )
                         {
@@ -553,11 +558,12 @@ sub process_data
                             }
 
                             $kvo = $rollback->{'kvo'};
+                            $block_time = $rollback->{'block_timestamp'};
 
                             # delete the application row
                             foreach my $hook (@row_hooks)
                             {
-                                &{$hook}(0, $kvo);
+                                &{$hook}(0, $kvo, $j_block_num, $block_time);
                             }
                         }
 
@@ -569,7 +575,7 @@ sub process_data
                             {
                                 foreach my $hook (@row_hooks)
                                 {
-                                    &{$hook}(1, $kvo);
+                                    &{$hook}(1, $kvo, $j_block_num, $block_time);
                                 }
                             }
                         }
@@ -593,12 +599,14 @@ sub process_data
                         }
 
                         my $kvo = $newval->{'kvo'};
+                        my $block_time = $newval->{'block_timestamp'};
+
                         if( defined($kvo) )
                         {
                             # delete the application row
                             foreach my $hook (@row_hooks)
                             {
-                                &{$hook}(0, $kvo);
+                                &{$hook}(0, $kvo, $j_block_num, $block_time);
                             }
 
                             $rolled_in++;
@@ -608,7 +616,7 @@ sub process_data
                                 # new or updated row
                                 foreach my $hook (@row_hooks)
                                 {
-                                    &{$hook}(1, $kvo);
+                                    &{$hook}(1, $kvo, $j_block_num, $block_time);
                                 }
                             }
                         }
