@@ -10,6 +10,7 @@ EnvironmentFile=/etc/default/table_reflector_%i
 ExecStart=/usr/bin/perl ${WRITER_HOME}/writer/table_reflector_dbwriter.pl $DBWRITER_OPTS
 TimeoutSec=45s
 Restart=always
+RestartSec=60
 User=root
 Group=daemon
 KillMode=control-group
