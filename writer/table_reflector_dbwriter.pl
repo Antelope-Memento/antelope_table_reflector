@@ -9,6 +9,7 @@ use Protocol::WebSocket::Frame;
 use Time::HiRes qw (time);
 use Time::Local 'timegm_nocheck';
 use Crypt::Digest::SHA256 qw(sha256);
+use Math::BigInt;
 
 $Protocol::WebSocket::Frame::MAX_PAYLOAD_SIZE = 100*1024*1024;
 $Protocol::WebSocket::Frame::MAX_FRAGMENTS_AMOUNT = 102400;
@@ -58,6 +59,34 @@ if( not $ok or not $sourceid or not ($sourceid == 1 or $sourceid == 2) or
         "  --plugin=FILE.pl   plugin program for custom processing\n",
         "  --parg KEY=VAL     plugin configuration options\n";
     exit 1;
+}
+
+
+# reference code:
+# https://github.com/AntelopeIO/cdt/blob/fb549b6cc3569b8d3f61e5e9ad1a992f2b23dbb4/libraries/eosiolib/core/eosio/name.hpp#L230
+
+our @name_charmap = split('', '.12345abcdefghijklmnopqrstuvwxyz');
+our $name_mask = Math::BigInt->new('0xF800000000000000');
+
+sub number2name
+{
+    my $value = Math::BigInt->new(shift);
+    my $ret = '';
+
+    for( my $i = 0; $i < 13; ++$i )
+    {
+        if( $value->is_zero() )
+        {
+            return $ret;
+        }
+
+        my $v = Math::BigInt->new($value);
+        my $indx = $v->band($name_mask)->brsft($i == 12 ? 60 : 59);
+        $ret .= $name_charmap[$indx];
+        $value->blsft(5);
+    }
+
+    return $ret;
 }
 
 
